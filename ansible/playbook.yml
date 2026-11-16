@@ -15,6 +15,10 @@
       - alder-retail
       - cedar-freight
       - harbor-studio
+    siem_lab_streams:
+      - auth
+      - access
+      - firewall
   roles:
     - siem_lab_account
     - siem_lab_runtime

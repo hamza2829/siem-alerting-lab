@@ -1,5 +1,5 @@
 # Managed by the SIEM alerting lab. Inputs are scoped to generated fixture files.
-module(load="imfile" mode="inotify")
+module(load="imfile" mode="polling" PollingInterval="1")
 
 template(name="siemLabFixture" type="string" string="%syslogtag% %msg%\n")
 ruleset(name="siemLabFixtures") {
@@ -12,7 +12,7 @@ ruleset(name="siemLabFixtures") {
 }
 
 {% for customer in siem_lab_customers %}
-{% for stream in ["auth", "access", "firewall"] %}
+{% for stream in siem_lab_streams %}
 input(
     type="imfile"
     File="{{ siem_lab_state_dir }}/demo/logs/{{ customer }}/{{ stream }}.log"

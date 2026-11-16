@@ -135,21 +135,35 @@ jobs:
           bash /opt/siem-alerting-lab/check_host.sh / rsyslog.service 95 \
             | tee out/provisioning/host-health.txt
           collector=/var/log/siem-alerting-lab/collected.log
-          for attempt in {1..20}; do
-            if sudo grep -q 'alder-retail/auth:' "$collector" \
-              && sudo grep -q 'cedar-freight/firewall:' "$collector" \
-              && sudo grep -q 'harbor-studio/access:' "$collector"; then
-              break
-            fi
-            sleep 1
+          wait_for_log_line() {
+            local line=$1
+            for attempt in {1..15}; do
+              if sudo test -f "$collector" && sudo grep -Fq -- "$line" "$collector"; then
+                return 0
+              fi
+              sleep 1
+            done
+            printf 'Collector did not receive expected fixture: %s\n' "$line" >&2
+            return 1
+          }
+          logs=/var/lib/siem-alerting-lab/demo/logs
+          for customer in alder-retail cedar-freight harbor-studio; do
+            for stream in auth access firewall; do
+              wait_for_log_line "$(tail -n 1 "$logs/$customer/$stream.log")"
+            done
           done
-          sudo grep -q 'alder-retail/auth:' "$collector"
-          sudo grep -q 'cedar-freight/firewall:' "$collector"
-          sudo grep -q 'harbor-studio/access:' "$collector"
+          first="$(tail -n 1 "$logs/alder-retail/auth.log")"
+          sleep 1
+          sudo systemctl start siem-alerting-lab.service
+          second="$(tail -n 1 "$logs/alder-retail/auth.log")"
+          test "$first" != "$second"
+          wait_for_log_line "$second"
           sudo wc -l "$collector" | tee out/provisioning/rsyslog-proof.txt
       - name: Diagnose provisioning failure
         if: failure()
-        run: sudo journalctl --no-pager -u siem-alerting-lab.service -u rsyslog.service -n 40
+        run: |
+          sudo journalctl --no-pager -u siem-alerting-lab.service -u rsyslog.service -n 45
+          sudo ls -ld /var/lib/siem-alerting-lab/demo/logs/* /var/log/siem-alerting-lab || true
       - name: Upload provisioning verification
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

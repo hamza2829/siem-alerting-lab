@@ -3,8 +3,10 @@
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from os import fdopen
 from pathlib import Path
 from random import Random
+from tempfile import mkstemp
 from typing import Literal
 
 from siem_lab.records import (
@@ -18,6 +20,19 @@ from siem_lab.records import (
 
 Profile = Literal["reference", "variable", "control"]
 DEFAULT_SEED = 42
+
+
+def replace_stream(path: Path, lines: list[tuple[int, str]]) -> None:
+    """Publish a complete snapshot as a new file for readers and log tailers."""
+    descriptor, filename = mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    pending = Path(filename)
+    try:
+        with fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
+            output.writelines(f"{line}\n" for _, line in lines)
+        pending.chmod(0o644)
+        pending.replace(path)
+    finally:
+        pending.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,9 +111,7 @@ class FixtureWriter:
             target.mkdir(parents=True, exist_ok=True)
             for stream in Stream:
                 lines = sorted(self.lines[customer, stream])
-                (target / stream.filename).write_text(
-                    "".join(f"{line}\n" for _, line in lines), encoding="utf-8", newline="\n"
-                )
+                replace_stream(target / stream.filename, lines)
 
 
 def background(writer: FixtureWriter, rng: Random) -> Scenario:
