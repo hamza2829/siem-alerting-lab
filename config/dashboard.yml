@@ -1,0 +1,7 @@
+---
+title: SIEM Alerting Lab
+customers:
+  alder-retail: Alder Retail
+  cedar-freight: Cedar Freight
+  harbor-studio: Harbor Studio
+top_source_ips: 5
