@@ -1,0 +1,31 @@
+---
+- name: Install rsyslog
+  ansible.builtin.apt:
+    name: rsyslog
+    state: present
+
+- name: Make a separate destination for collected fixtures
+  ansible.builtin.file:
+    path: "{{ siem_lab_rsyslog_dir }}"
+    state: directory
+    owner: "{{ omit if ansible_check_mode else 'syslog' }}"
+    group: "{{ omit if ansible_check_mode else 'adm' }}"
+    mode: "0750"
+
+- name: Configure inputs for the lab's synthetic streams
+  ansible.builtin.template:
+    src: siem-alerting-lab.conf.j2
+    dest: /etc/rsyslog.d/45-siem-alerting-lab.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Validate the rsyslog configuration
+    - Restart rsyslog with lab inputs
+
+- name: Ensure rsyslog is active
+  ansible.builtin.systemd_service:
+    name: rsyslog.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode

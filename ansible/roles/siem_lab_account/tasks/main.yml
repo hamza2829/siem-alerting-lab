@@ -1,0 +1,16 @@
+---
+- name: Create the dedicated lab group
+  ansible.builtin.group:
+    name: "{{ siem_lab_group }}"
+    system: true
+    state: present
+
+- name: Create the non-login lab service account
+  ansible.builtin.user:
+    name: "{{ siem_lab_user }}"
+    group: "{{ omit if ansible_check_mode else siem_lab_group }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+    password_lock: true
+    state: present

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh the synthetic SIEM replay and dashboard
+
+[Timer]
+OnActiveSec=15min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Unit=siem-alerting-lab.service
+
+[Install]
+WantedBy=timers.target

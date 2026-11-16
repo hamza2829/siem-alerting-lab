@@ -1,0 +1,11 @@
+---
+- name: Validate the rsyslog configuration
+  ansible.builtin.command: rsyslogd -N1
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Restart rsyslog with lab inputs
+  ansible.builtin.systemd_service:
+    name: rsyslog.service
+    state: restarted
+  when: not ansible_check_mode

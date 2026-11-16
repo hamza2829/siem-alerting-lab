@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lab:
+    name: Lint, tests, and replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-ci.txt
+      - run: python -m pip install -r requirements-ci.txt
+      - name: Ruff lint and format
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+      - name: Ansible lint
+        working-directory: ansible
+        run: ansible-lint --profile moderate playbook.yml
+      - name: Pytest with branch coverage
+        run: |
+          mkdir -p out
+          python -m pytest --cov --cov-report=term-missing --cov-report=xml:out/coverage.xml \
+            | tee out/pytest.txt
+      - name: Generate the demo and measure 20 seeds
+        run: python -m siem_lab demo --out out
+      - name: Capture the generated HTML dashboard
+        run: |
+          google-chrome --headless --disable-dev-shm-usage \
+            --user-data-dir="$RUNNER_TEMP/siem-dashboard-browser" \
+            --window-size=1440,1080 --screenshot="$PWD/out/dashboard.png" \
+            "file://$PWD/out/dashboard.html"
+          python - <<'PY'
+          from pathlib import Path
+          from struct import unpack
+
+          png = Path("out/dashboard.png").read_bytes()
+          assert png.startswith(b"\x89PNG\r\n\x1a\n")
+          assert unpack(">II", png[16:24]) == (1440, 1080)
+          assert len(png) > 10_000
+          PY
+      - name: Upload benchmark, dashboard, and coverage
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: siem-lab-results
+          path: |
+            out/alerts.json
+            out/results.md
+            out/results.json
+            out/dashboard.html
+            out/dashboard.png
+            out/grafana-dashboard.json
+            out/coverage.xml
+            out/pytest.txt
+          if-no-files-found: warn
+
+  provisioning:
+    name: Ansible check and real provisioning
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      ANSIBLE_NOCOLOR: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - run: python -m pip install ansible-core==2.19.12
+      - name: Plan localhost changes
+        working-directory: ansible
+        run: |
+          mkdir -p ../out/provisioning
+          ansible-playbook playbook.yml --connection=local --check \
+            | tee ../out/provisioning/check-mode.txt
+          test ! -e /etc/systemd/system/siem-alerting-lab.timer
+      - name: Provision localhost on the ephemeral runner
+        working-directory: ansible
+        run: |
+          ansible-playbook playbook.yml --connection=local \
+            | tee ../out/provisioning/real-run.txt
+      - name: Verify the installed timer, alerts, rsyslog, and monitoring
+        run: |
+          getent passwd siemlab
+          sudo systemctl is-enabled siem-alerting-lab.timer
+          sudo systemctl is-active siem-alerting-lab.timer
+          sudo systemctl start siem-alerting-lab.service
+          test -s /var/lib/siem-alerting-lab/demo/dashboard.html
+          test -s /var/lib/siem-alerting-lab/demo/alerts.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          alerts = json.loads(Path("/var/lib/siem-alerting-lab/demo/alerts.json").read_bytes())
+          expected = {
+              "ssh_brute_force", "password_spraying", "impossible_travel",
+              "web_scanning", "outbound_volume",
+          }
+          assert {alert["rule_id"] for alert in alerts} == expected
+          print("Verified all reference alerts from the systemd service")
+          PY
+          (
+            cd /opt/siem-alerting-lab
+            venv/bin/python -m siem_lab.freshness --logs /var/lib/siem-alerting-lab/demo/logs \
+              --max-age-seconds 1200
+          ) | tee out/provisioning/freshness.json
+          bash /opt/siem-alerting-lab/check_host.sh / rsyslog.service 95 \
+            | tee out/provisioning/host-health.txt
+          collector=/var/log/siem-alerting-lab/collected.log
+          for attempt in {1..20}; do
+            if sudo grep -q 'alder-retail/auth:' "$collector" \
+              && sudo grep -q 'cedar-freight/firewall:' "$collector" \
+              && sudo grep -q 'harbor-studio/access:' "$collector"; then
+              break
+            fi
+            sleep 1
+          done
+          sudo grep -q 'alder-retail/auth:' "$collector"
+          sudo grep -q 'cedar-freight/firewall:' "$collector"
+          sudo grep -q 'harbor-studio/access:' "$collector"
+          sudo wc -l "$collector" | tee out/provisioning/rsyslog-proof.txt
+      - name: Diagnose provisioning failure
+        if: failure()
+        run: sudo journalctl --no-pager -u siem-alerting-lab.service -u rsyslog.service -n 40
+      - name: Upload provisioning verification
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: provisioning-verification
+          path: out/provisioning/
+          if-no-files-found: warn

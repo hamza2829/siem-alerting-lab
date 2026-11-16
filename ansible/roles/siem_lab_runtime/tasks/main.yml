@@ -1,0 +1,117 @@
+---
+- name: Inspect the install directory before check mode changes
+  ansible.builtin.stat:
+    path: "{{ siem_lab_install_dir }}"
+  register: siem_lab_runtime_install_exists
+  when: ansible_check_mode
+
+- name: Create root-owned code and configuration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ siem_lab_install_dir }}"
+    - "{{ siem_lab_config_dir }}"
+
+- name: Create writable state for the service account
+  ansible.builtin.file:
+    path: "{{ siem_lab_state_dir }}"
+    state: directory
+    owner: "{{ omit if ansible_check_mode else siem_lab_user }}"
+    group: "{{ omit if ansible_check_mode else siem_lab_group }}"
+    mode: "0755"
+
+- name: Prepare customer log directories for the rsyslog inputs
+  ansible.builtin.file:
+    path: "{{ siem_lab_state_dir }}/demo/logs/{{ item }}"
+    state: directory
+    owner: "{{ omit if ansible_check_mode else siem_lab_user }}"
+    group: "{{ omit if ansible_check_mode else siem_lab_group }}"
+    mode: "0755"
+  loop: "{{ siem_lab_customers }}"
+
+- name: Copy the Python lab to the service directory
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../siem_lab/"
+    dest: "{{ siem_lab_install_dir }}/siem_lab/"
+    directory_mode: "0755"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not ansible_check_mode or siem_lab_runtime_install_exists.stat.exists
+
+- name: Deploy the dependency manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../requirements.txt"
+    dest: "{{ siem_lab_install_dir }}/requirements.txt"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the host health check script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/check_host.sh"
+    dest: "{{ siem_lab_install_dir }}/check_host.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy detection thresholds and dashboard configuration
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../config/{{ item }}"
+    dest: "{{ siem_lab_config_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - rules.yml
+    - dashboard.yml
+
+- name: Create the Python 3.11 virtual environment
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -m
+      - venv
+      - "{{ siem_lab_install_dir }}/venv"
+    creates: "{{ siem_lab_install_dir }}/venv/bin/python"
+
+- name: Inspect the environment in check mode
+  ansible.builtin.stat:
+    path: "{{ siem_lab_install_dir }}/venv/bin/pip"
+  register: siem_lab_runtime_pip
+  when: ansible_check_mode
+
+- name: Install pinned runtime packages in the virtual environment
+  ansible.builtin.pip:
+    executable: "{{ siem_lab_install_dir }}/venv/bin/pip"
+    requirements: "{{ siem_lab_install_dir }}/requirements.txt"
+  when: not ansible_check_mode or siem_lab_runtime_pip.stat.exists
+
+- name: Install the lab systemd units
+  ansible.builtin.template:
+    src: "siem-alerting-lab.{{ item }}.j2"
+    dest: "/etc/systemd/system/siem-alerting-lab.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+
+- name: Inspect the installed timer in check mode
+  ansible.builtin.stat:
+    path: /etc/systemd/system/siem-alerting-lab.timer
+  register: siem_lab_runtime_timer
+  when: ansible_check_mode
+
+- name: Enable and start the lab timer
+  ansible.builtin.systemd_service:
+    name: siem-alerting-lab.timer
+    daemon_reload: "{{ not ansible_check_mode }}"
+    enabled: true
+    state: started
+  when: not ansible_check_mode or siem_lab_runtime_timer.stat.exists

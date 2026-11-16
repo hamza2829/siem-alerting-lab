@@ -1,0 +1,25 @@
+# Managed by the SIEM alerting lab. Inputs are scoped to generated fixture files.
+module(load="imfile" mode="inotify")
+
+template(name="siemLabFixture" type="string" string="%syslogtag% %msg%\n")
+ruleset(name="siemLabFixtures") {
+    action(
+        type="omfile"
+        File="{{ siem_lab_rsyslog_dir }}/collected.log"
+        Template="siemLabFixture"
+        FileCreateMode="0640"
+    )
+}
+
+{% for customer in siem_lab_customers %}
+{% for stream in ["auth", "access", "firewall"] %}
+input(
+    type="imfile"
+    File="{{ siem_lab_state_dir }}/demo/logs/{{ customer }}/{{ stream }}.log"
+    Tag="{{ customer }}/{{ stream }}:"
+    Ruleset="siemLabFixtures"
+    PersistStateInterval="10"
+    reopenOnTruncate="on"
+)
+{% endfor %}
+{% endfor %}
