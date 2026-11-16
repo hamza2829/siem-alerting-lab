@@ -1,0 +1,26 @@
+---
+ssh_brute_force:
+  severity: high
+  window_seconds: 300
+  min_failures: 8
+
+password_spraying:
+  severity: high
+  window_seconds: 600
+  min_users: 6
+  max_failures_per_user: 2
+
+impossible_travel:
+  severity: critical
+  window_seconds: 7200
+  min_speed_kmh: 900
+
+web_scanning:
+  severity: medium
+  window_seconds: 120
+  min_unique_paths: 12
+
+outbound_volume:
+  severity: critical
+  window_seconds: 300
+  min_bytes: 25000000

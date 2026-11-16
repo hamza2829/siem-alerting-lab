@@ -1,0 +1,20 @@
+---
+title: Successive SSH Logins with Excessive Implied Travel Speed
+name: impossible_travel
+status: experimental
+description: >-
+  Selects SSH successes. The Python implementation compares consecutive
+  logins for the same customer and username using fixture-only locations.
+logsource:
+  product: linux
+  service: sshd
+detection:
+  selection:
+    action: ssh_success
+  condition: selection
+falsepositives:
+  - A legitimate user changing VPN egress regions
+level: critical
+tags:
+  - attack.initial_access
+  - attack.t1078

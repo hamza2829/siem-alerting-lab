@@ -1,0 +1,20 @@
+---
+title: Repeated SSH Failures Against One Account
+name: ssh_brute_force
+status: experimental
+description: >-
+  Selects SSH password failures. The Python implementation counts them per
+  customer, source IP, and username in a sliding window.
+logsource:
+  product: linux
+  service: sshd
+detection:
+  selection:
+    action: ssh_failure
+  condition: selection
+falsepositives:
+  - A human operator or scheduled job repeatedly using an expired password
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1110.001

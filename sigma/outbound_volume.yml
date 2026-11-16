@@ -1,0 +1,21 @@
+---
+title: Large Outbound Transfer Volume
+name: outbound_volume
+status: experimental
+description: >-
+  Selects allowed outbound traffic to the external zone. The Python
+  implementation sums sent bytes per customer and source IP.
+logsource:
+  category: firewall
+detection:
+  selection:
+    direction: OUT
+    verdict: ACCEPT
+    zone: external
+  condition: selection
+falsepositives:
+  - A legitimate large backup or software artifact upload
+level: critical
+tags:
+  - attack.exfiltration
+  - attack.t1048

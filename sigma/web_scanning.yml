@@ -1,0 +1,19 @@
+---
+title: Rapid Requests to Distinct Missing Web Paths
+name: web_scanning
+status: experimental
+description: >-
+  Selects HTTP 404 responses. The Python implementation counts distinct
+  paths over a short window grouped by customer and source IP.
+logsource:
+  category: webserver
+detection:
+  selection:
+    status: 404
+  condition: selection
+falsepositives:
+  - A broken deployment or link checker after a large path migration
+level: medium
+tags:
+  - attack.reconnaissance
+  - attack.t1595
